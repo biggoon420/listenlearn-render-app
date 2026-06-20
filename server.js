@@ -50,6 +50,19 @@ function hostnameFromUrl(url) {
   }
 }
 
+function isHttpUrl(value = '') {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function articleQuestionFromUrl(url) {
+  return `Summarize this article directly and explain the important parts without adding unrelated background: ${url}`;
+}
+
 function rootDomain(host) {
   const parts = host.split('.');
   if (parts.length <= 2) return host;
@@ -184,6 +197,34 @@ async function extractArticle(candidate) {
       wordCountEstimate: Math.round(candidate.description.split(/\s+/).length)
     };
   }
+}
+
+async function extractArticleUrl(articleUrl) {
+  const url = cleanText(articleUrl);
+  if (!isHttpUrl(url)) {
+    throw new Error('That does not look like a valid article URL.');
+  }
+
+  const host = hostnameFromUrl(url);
+  if (!host || isBlocked(host)) {
+    throw new Error('That URL is from a blocked or unsupported site. Try the original article link instead.');
+  }
+
+  const article = await extractArticle({
+    title: host,
+    url,
+    description: '',
+    age: null,
+    language: null,
+    domain: host,
+    score: credibilityScore({ title: host, description: '', url })
+  });
+
+  if (!article.fetched || cleanText(article.excerpt).length < 500) {
+    throw new Error('I could not read enough of that article. It may be paywalled, login-only, or blocking article extraction.');
+  }
+
+  return article;
 }
 
 function readingStyle(length) {
@@ -370,6 +411,35 @@ async function makeSpeech(text) {
 
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true });
+});
+
+app.post('/api/article', async (req, res) => {
+  try {
+    if (!process.env.OPENAI_API_KEY) {
+      return res.status(500).json({ error: 'Missing OPENAI_API_KEY. Add it in Render environment variables.' });
+    }
+
+    const articleUrl = cleanText(req.body?.url || '');
+    const includeAudio = true;
+
+    const article = await extractArticleUrl(articleUrl);
+    const summary = await summarizeWithOpenAI(articleQuestionFromUrl(articleUrl), [article], 'deep');
+    const audio = includeAudio ? await makeSpeech(summary.listenScript) : null;
+
+    res.json({
+      question: articleUrl,
+      generatedAt: new Date().toISOString(),
+      articleCount: 1,
+      summary,
+      audio,
+      disclosure: 'The spoken narration is AI-generated, not a human recording.'
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      error: error.message || 'Something went wrong while reading this article.'
+    });
+  }
 });
 
 app.post('/api/learn', async (req, res) => {

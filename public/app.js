@@ -10,6 +10,27 @@ const statusMessages = [
   'Making the audio...'
 ];
 
+const articleStatusMessages = [
+  'Reading the article...',
+  'Finding the useful parts...',
+  'Summarizing it clearly...',
+  'Making the audio...'
+];
+
+function isHttpUrl(value = '') {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function getSharedArticleUrl() {
+  const params = new URLSearchParams(window.location.search);
+  return params.get('article') || '';
+}
+
 function escapeHtml(value = '') {
   return String(value)
     .replaceAll('&', '&amp;')
@@ -68,34 +89,37 @@ function renderResult(data) {
   resultEl.classList.remove('hidden');
 }
 
-async function askQuestion() {
-  const question = questionEl.value.trim();
+async function askQuestion(inputOverride = '') {
+  const question = (inputOverride || questionEl.value).trim();
   if (!question) {
-    setStatus('Type a topic or question first.', true);
+    setStatus('Type a topic, question, or article link first.', true);
     return;
   }
+
+  const articleMode = isHttpUrl(question);
+  const messages = articleMode ? articleStatusMessages : statusMessages;
 
   clearResult();
   askButton.disabled = true;
   let statusIndex = 0;
-  setStatus(statusMessages[statusIndex]);
+  setStatus(messages[statusIndex]);
 
   const interval = setInterval(() => {
-    statusIndex = Math.min(statusIndex + 1, statusMessages.length - 1);
-    setStatus(statusMessages[statusIndex]);
+    statusIndex = Math.min(statusIndex + 1, messages.length - 1);
+    setStatus(messages[statusIndex]);
   }, 3000);
 
   try {
-    const response = await fetch('/api/learn', {
+    const response = await fetch(articleMode ? '/api/article' : '/api/learn', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question })
+      body: JSON.stringify(articleMode ? { url: question } : { question })
     });
 
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || 'Request failed.');
 
-    setStatus(`Done. Used ${data.articleCount} source${data.articleCount === 1 ? '' : 's'}.`);
+    setStatus(articleMode ? 'Done. Read 1 article.' : `Done. Used ${data.articleCount} source${data.articleCount === 1 ? '' : 's'}.`);
     renderResult(data);
   } catch (error) {
     setStatus(error.message || 'Something went wrong.', true);
@@ -111,6 +135,13 @@ questionEl.addEventListener('keydown', (event) => {
     askQuestion();
   }
 });
+
+const sharedArticleUrl = getSharedArticleUrl();
+if (sharedArticleUrl && isHttpUrl(sharedArticleUrl)) {
+  questionEl.value = sharedArticleUrl;
+  window.history.replaceState({}, document.title, window.location.pathname);
+  askQuestion(sharedArticleUrl);
+}
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
