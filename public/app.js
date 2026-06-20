@@ -19,7 +19,7 @@ const articleStatusMessages = [
 
 function isHttpUrl(value = '') {
   try {
-    const parsed = new URL(value);
+    const parsed = new URL(String(value).trim());
     return parsed.protocol === 'http:' || parsed.protocol === 'https:';
   } catch {
     return false;
@@ -52,7 +52,7 @@ function clearResult() {
 }
 
 function renderResult(data) {
-  const summary = data.summary;
+  const summary = data.summary || {};
 
   const takeaways = (summary.keyTakeaways || [])
     .map((item) => `<li>${escapeHtml(item)}</li>`)
@@ -79,8 +79,8 @@ function renderResult(data) {
   resultEl.innerHTML = `
     <div class="overview-card">
       <p class="label">Overview</p>
-      <h2>${escapeHtml(summary.answerTitle)}</h2>
-      <p class="answer">${escapeHtml(summary.shortAnswer)}</p>
+      <h2>${escapeHtml(summary.answerTitle || 'Overview')}</h2>
+      <p class="answer">${escapeHtml(summary.shortAnswer || '')}</p>
       ${takeaways ? `<ul>${takeaways}</ul>` : ''}
       ${audioHtml}
       ${links ? `<div class="source-links">${links}</div>` : ''}
@@ -89,15 +89,14 @@ function renderResult(data) {
   resultEl.classList.remove('hidden');
 }
 
-async function askQuestion(inputOverride = '') {
-  const suppliedInput = typeof inputOverride === 'string' ? inputOverride : '';
-  const question = (suppliedInput || questionEl.value || '').trim();
-  if (!question) {
+async function runInput(rawInput = '') {
+  const input = String(rawInput || '').trim();
+  if (!input) {
     setStatus('Type a topic, question, or article link first.', true);
     return;
   }
 
-  const articleMode = isHttpUrl(question);
+  const articleMode = isHttpUrl(input);
   const messages = articleMode ? articleStatusMessages : statusMessages;
 
   clearResult();
@@ -111,16 +110,19 @@ async function askQuestion(inputOverride = '') {
   }, 3000);
 
   try {
-    const response = await fetch(articleMode ? '/api/article' : '/api/learn', {
+    // One endpoint decides article URL vs normal topic server-side too.
+    // This prevents manual input from breaking even if URL detection changes later.
+    const response = await fetch('/api/run', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(articleMode ? { url: question } : { question })
+      body: JSON.stringify({ input })
     });
 
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || 'Request failed.');
 
-    setStatus(articleMode ? 'Done. Read 1 article.' : `Done. Used ${data.articleCount} source${data.articleCount === 1 ? '' : 's'}.`);
+    const usedArticleMode = data.mode === 'article' || articleMode;
+    setStatus(usedArticleMode ? 'Done. Read 1 article.' : `Done. Used ${data.articleCount} source${data.articleCount === 1 ? '' : 's'}.`);
     renderResult(data);
   } catch (error) {
     setStatus(error.message || 'Something went wrong.', true);
@@ -130,10 +132,16 @@ async function askQuestion(inputOverride = '') {
   }
 }
 
-askButton.addEventListener('click', () => askQuestion());
+function submitManualInput(event) {
+  event?.preventDefault?.();
+  event?.stopPropagation?.();
+  runInput(questionEl.value);
+}
+
+askButton.addEventListener('click', submitManualInput);
 questionEl.addEventListener('keydown', (event) => {
   if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-    askQuestion();
+    submitManualInput(event);
   }
 });
 
@@ -141,7 +149,7 @@ const sharedArticleUrl = getSharedArticleUrl();
 if (sharedArticleUrl && isHttpUrl(sharedArticleUrl)) {
   questionEl.value = sharedArticleUrl;
   window.history.replaceState({}, document.title, window.location.pathname);
-  askQuestion(sharedArticleUrl);
+  runInput(sharedArticleUrl);
 }
 
 if ('serviceWorker' in navigator) {

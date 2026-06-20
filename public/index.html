@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#0c0c0e" />
     <title>ListenLearn</title>
     <link rel="manifest" href="/manifest.json" />
-    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/styles.css?v=manual-fix-7" />
   </head>
   <body>
     <main class="shell">
@@ -18,13 +18,13 @@
           placeholder="Ask a specific question or type a topic..."
           autofocus
         ></textarea>
-        <button id="askButton">Learn</button>
+        <button id="askButton" type="button">Learn</button>
         <p id="status" class="status hidden" role="status" aria-live="polite"></p>
       </section>
 
       <section id="result" class="result hidden" aria-label="Overview"></section>
     </main>
 
-    <script src="/app.js" type="module"></script>
+    <script src="/app.js?v=manual-fix-7" type="module"></script>
   </body>
 </html>

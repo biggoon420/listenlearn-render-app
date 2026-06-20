@@ -467,8 +467,100 @@ async function makeSpeech(text) {
   };
 }
 
+
+async function buildArticleResponse(articleUrl) {
+  const article = await extractArticleUrl(articleUrl);
+  const summary = await summarizeWithOpenAI(articleQuestionFromUrl(articleUrl), [article], 'deep');
+  const audio = await makeSpeech(summary.listenScript);
+
+  return {
+    mode: 'article',
+    question: articleUrl,
+    generatedAt: new Date().toISOString(),
+    articleCount: 1,
+    summary,
+    audio,
+    disclosure: 'The spoken narration is AI-generated, not a human recording.'
+  };
+}
+
+async function buildLearnResponse(question) {
+  const candidates = await braveSearch(question);
+  const extracted = await Promise.all(candidates.map(extractArticle));
+  const articles = extracted
+    .filter((a) => cleanText(a.excerpt).length > 120 && !looksLikeCssDump(a.excerpt))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, MAX_SOURCES);
+
+  if (articles.length === 0) {
+    const backupArticles = extracted
+      .filter((a) => cleanText(a.description || a.excerpt).length > 50)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, MAX_SOURCES)
+      .map((a) => ({
+        ...a,
+        excerpt: cleanText(a.excerpt || a.description),
+        fetched: false
+      }));
+
+    if (backupArticles.length === 0) {
+      throw new Error('I found search results, but none had enough readable text to summarize safely.');
+    }
+
+    const summary = await summarizeWithOpenAI(question, backupArticles, 'deep');
+    const audio = await makeSpeech(summary.listenScript);
+    return {
+      mode: 'topic',
+      question,
+      generatedAt: new Date().toISOString(),
+      articleCount: backupArticles.length,
+      summary,
+      audio,
+      disclosure: 'The spoken narration is AI-generated, not a human recording.'
+    };
+  }
+
+  const summary = await summarizeWithOpenAI(question, articles, 'deep');
+  const audio = await makeSpeech(summary.listenScript);
+
+  return {
+    mode: 'topic',
+    question,
+    generatedAt: new Date().toISOString(),
+    articleCount: articles.length,
+    summary,
+    audio,
+    disclosure: 'The spoken narration is AI-generated, not a human recording.'
+  };
+}
+
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true });
+});
+
+app.post('/api/run', async (req, res) => {
+  try {
+    if (!process.env.OPENAI_API_KEY) {
+      return res.status(500).json({ error: 'Missing OPENAI_API_KEY. Add it in Render environment variables.' });
+    }
+
+    const input = cleanText(req.body?.input || req.body?.question || req.body?.url || '');
+    if (input.length < 3) {
+      return res.status(400).json({ error: 'Type a real question, topic, or article URL first.' });
+    }
+    if (!isHttpUrl(input) && input.length > 350) {
+      return res.status(400).json({ error: 'Question is too long. Keep it under 350 characters.' });
+    }
+
+    const payload = isHttpUrl(input)
+      ? await buildArticleResponse(input)
+      : await buildLearnResponse(input);
+
+    res.json(payload);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: error.message || 'Something went wrong.' });
+  }
 });
 
 app.post('/api/article', async (req, res) => {
@@ -477,21 +569,9 @@ app.post('/api/article', async (req, res) => {
       return res.status(500).json({ error: 'Missing OPENAI_API_KEY. Add it in Render environment variables.' });
     }
 
-    const articleUrl = cleanText(req.body?.url || '');
-    const includeAudio = true;
-
-    const article = await extractArticleUrl(articleUrl);
-    const summary = await summarizeWithOpenAI(articleQuestionFromUrl(articleUrl), [article], 'deep');
-    const audio = includeAudio ? await makeSpeech(summary.listenScript) : null;
-
-    res.json({
-      question: articleUrl,
-      generatedAt: new Date().toISOString(),
-      articleCount: 1,
-      summary,
-      audio,
-      disclosure: 'The spoken narration is AI-generated, not a human recording.'
-    });
+    const articleUrl = cleanText(req.body?.url || req.body?.input || req.body?.question || '');
+    const payload = await buildArticleResponse(articleUrl);
+    res.json(payload);
   } catch (error) {
     console.error(error);
     res.status(500).json({
@@ -506,39 +586,19 @@ app.post('/api/learn', async (req, res) => {
       return res.status(500).json({ error: 'Missing OPENAI_API_KEY. Add it in Render environment variables.' });
     }
 
-    const question = cleanText(req.body?.question || '');
-    const length = 'deep';
-    const includeAudio = true;
-
+    const question = cleanText(req.body?.question || req.body?.input || req.body?.url || '');
     if (question.length < 3) {
       return res.status(400).json({ error: 'Ask a real question or topic first.' });
     }
-    if (question.length > 350) {
+    if (!isHttpUrl(question) && question.length > 350) {
       return res.status(400).json({ error: 'Question is too long. Keep it under 350 characters.' });
     }
 
-    const candidates = await braveSearch(question);
-    const extracted = await Promise.all(candidates.map(extractArticle));
-    const articles = extracted
-      .filter((a) => cleanText(a.excerpt).length > 120 && !looksLikeCssDump(a.excerpt))
-      .sort((a, b) => b.score - a.score)
-      .slice(0, MAX_SOURCES);
+    const payload = isHttpUrl(question)
+      ? await buildArticleResponse(question)
+      : await buildLearnResponse(question);
 
-    if (articles.length === 0) {
-      return res.status(502).json({ error: 'I found search results, but none had enough readable text to summarize safely.' });
-    }
-
-    const summary = await summarizeWithOpenAI(question, articles, length);
-    const audio = includeAudio ? await makeSpeech(summary.listenScript) : null;
-
-    res.json({
-      question,
-      generatedAt: new Date().toISOString(),
-      articleCount: articles.length,
-      summary,
-      audio,
-      disclosure: 'The spoken narration is AI-generated, not a human recording.'
-    });
+    res.json(payload);
   } catch (error) {
     console.error(error);
     res.status(500).json({

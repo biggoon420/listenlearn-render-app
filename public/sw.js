@@ -1,4 +1,4 @@
-const CACHE_NAME = 'listenlearn-v6-input-handler-fixed';
+const CACHE_NAME = 'listenlearn-v7-manual-input-hardfix';
 const ASSETS = ['/', '/index.html', '/styles.css', '/app.js', '/manifest.json', '/icon.svg'];
 
 self.addEventListener('install', (event) => {
@@ -18,7 +18,14 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   if (url.pathname.startsWith('/api/')) return;
 
+  // Network-first so old broken JS doesn't get stuck on phones/Home Screen apps.
   event.respondWith(
-    caches.match(event.request).then((cached) => cached || fetch(event.request))
+    fetch(event.request)
+      .then((response) => {
+        const copy = response.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy)).catch(() => {});
+        return response;
+      })
+      .catch(() => caches.match(event.request))
   );
 });
