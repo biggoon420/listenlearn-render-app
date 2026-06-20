@@ -90,7 +90,8 @@ function renderResult(data) {
 }
 
 async function askQuestion(inputOverride = '') {
-  const question = (inputOverride || questionEl.value).trim();
+  const suppliedInput = typeof inputOverride === 'string' ? inputOverride : '';
+  const question = (suppliedInput || questionEl.value || '').trim();
   if (!question) {
     setStatus('Type a topic, question, or article link first.', true);
     return;
@@ -129,7 +130,7 @@ async function askQuestion(inputOverride = '') {
   }
 }
 
-askButton.addEventListener('click', askQuestion);
+askButton.addEventListener('click', () => askQuestion());
 questionEl.addEventListener('keydown', (event) => {
   if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
     askQuestion();
