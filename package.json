@@ -1,0 +1,22 @@
+{
+  "name": "listenlearn-render-app",
+  "version": "1.0.0",
+  "description": "A Render-deployable web app that finds reputable sources, summarizes them, and reads the summary aloud.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "@mozilla/readability": "^0.6.0",
+    "compression": "^1.7.5",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "helmet": "^8.0.0",
+    "jsdom": "^25.0.1"
+  }
+}

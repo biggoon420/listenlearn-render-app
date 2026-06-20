@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0c0c0e" />
+    <title>ListenLearn</title>
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="ask-panel" aria-label="Ask a topic">
+        <h1>What would you like to learn about?</h1>
+        <textarea
+          id="question"
+          maxlength="350"
+          placeholder="Ask a specific question or type a topic..."
+          autofocus
+        ></textarea>
+        <button id="askButton">Learn</button>
+        <p id="status" class="status hidden" role="status" aria-live="polite"></p>
+      </section>
+
+      <section id="result" class="result hidden" aria-label="Overview"></section>
+    </main>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>
