@@ -1,4 +1,4 @@
-const CACHE_NAME = 'listenlearn-v4-article-share';
+const CACHE_NAME = 'listenlearn-v5-article-share-fixed';
 const ASSETS = ['/', '/index.html', '/styles.css', '/app.js', '/manifest.json', '/icon.svg'];
 
 self.addEventListener('install', (event) => {

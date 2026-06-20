@@ -41,6 +41,42 @@ function cleanText(text = '') {
     .trim();
 }
 
+
+function removeExtractionNoise(document) {
+  const noisySelectors = [
+    'script', 'style', 'noscript', 'template', 'svg', 'canvas', 'iframe', 'form',
+    'nav', 'footer', 'header', 'aside', '[hidden]', '[aria-hidden="true"]',
+    '.ad', '.ads', '.advert', '.advertisement', '[class*="ad-slot"]', '[id*="ad-slot"]',
+    '[class*="cookie"]', '[id*="cookie"]', '[class*="newsletter"]', '[class*="promo"]'
+  ];
+
+  for (const node of document.querySelectorAll(noisySelectors.join(','))) {
+    node.remove();
+  }
+}
+
+function looksLikeCssDump(text = '') {
+  const sample = cleanText(text).slice(0, 5000).toLowerCase();
+  if (!sample) return false;
+
+  const cssSignals = [
+    '@media', 'font-family', 'background-color', 'grid-template', 'display:flex',
+    'webkit-', 'moz-', 'ms-flex', '--source-text-decoration', 'ad-slot', '.dcr-',
+    'border-radius', 'box-sizing:border-box', 'transform:translate'
+  ];
+
+  const signalCount = cssSignals.filter((signal) => sample.includes(signal)).length;
+  const punctuationCount = (sample.match(/[{};]/g) || []).length;
+  const wordCount = sample.split(/\s+/).filter(Boolean).length || 1;
+  const punctuationRatio = punctuationCount / wordCount;
+
+  return signalCount >= 3 || punctuationCount > 140 || punctuationRatio > 1.2;
+}
+
+function metaContent(document, selector) {
+  return cleanText(document.querySelector(selector)?.getAttribute('content') || '');
+}
+
 function hostnameFromUrl(url) {
   try {
     const host = new URL(url).hostname.toLowerCase().replace(/^www\./, '');
@@ -175,26 +211,48 @@ async function extractArticle(candidate) {
 
     const html = await response.text();
     const dom = new JSDOM(html, { url: candidate.url });
-    const reader = new Readability(dom.window.document);
+    const document = dom.window.document;
+    removeExtractionNoise(document);
+
+    const fallbackTitle =
+      metaContent(document, 'meta[property="og:title"]') ||
+      cleanText(document.querySelector('title')?.textContent || '') ||
+      candidate.title;
+
+    const fallbackDescription =
+      metaContent(document, 'meta[name="description"]') ||
+      metaContent(document, 'meta[property="og:description"]') ||
+      candidate.description;
+
+    const reader = new Readability(document);
     const article = reader.parse();
-    const text = cleanText(article?.textContent || '');
+    let text = cleanText(article?.textContent || '');
+
+    // Some pages, especially aggressively styled news sites, can leak their CSS
+    // into extracted text. Never send that garbage to the summarizer.
+    if (looksLikeCssDump(text)) {
+      text = '';
+    }
+
+    const hasFullText = text.length > 900;
+    const excerpt = hasFullText ? text.slice(0, 9000) : cleanText(fallbackDescription);
 
     return {
       ...candidate,
-      readableTitle: cleanText(article?.title || candidate.title),
+      readableTitle: cleanText(article?.title || fallbackTitle || candidate.title),
       byline: cleanText(article?.byline || ''),
-      excerpt: text.length > 900 ? text.slice(0, 9000) : candidate.description,
-      fetched: text.length > 900,
-      wordCountEstimate: Math.round(text.split(/\s+/).length)
+      excerpt,
+      fetched: hasFullText,
+      wordCountEstimate: Math.round((hasFullText ? text : excerpt).split(/\s+/).filter(Boolean).length)
     };
   } catch {
     return {
       ...candidate,
       readableTitle: candidate.title,
       byline: '',
-      excerpt: candidate.description,
+      excerpt: cleanText(candidate.description),
       fetched: false,
-      wordCountEstimate: Math.round(candidate.description.split(/\s+/).length)
+      wordCountEstimate: Math.round(cleanText(candidate.description).split(/\s+/).filter(Boolean).length)
     };
   }
 }
@@ -462,7 +520,7 @@ app.post('/api/learn', async (req, res) => {
     const candidates = await braveSearch(question);
     const extracted = await Promise.all(candidates.map(extractArticle));
     const articles = extracted
-      .filter((a) => cleanText(a.excerpt).length > 120)
+      .filter((a) => cleanText(a.excerpt).length > 120 && !looksLikeCssDump(a.excerpt))
       .sort((a, b) => b.score - a.score)
       .slice(0, MAX_SOURCES);
 
